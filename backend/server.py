@@ -330,10 +330,14 @@ _result_cache: dict[str, dict] = {}
 def run_simulation(req: SimRequest):
     path = _current_model_path()
     raw = _load_raw(path)
-    ws = WorldSystem(model=raw)
+
+    stochastic_cfg = raw.get("stochastic", {})
+    sd_noise = stochastic_cfg.get("sd_noise", {})
+    has_agents = bool(raw.get("agent_templates"))
 
     if req.mode == "deterministic":
-        res = ws.simulate(n_points=req.n_steps)
+        rng = np.random.default_rng(req.seed or 42)
+        res = _simulate_core(raw, req.n_steps, sd_noise if req.mode == "stochastic" else {}, rng)
         result = {
             "mode": "deterministic",
             "t": res["t"].tolist(),
@@ -341,27 +345,13 @@ def run_simulation(req: SimRequest):
             "auxiliaries": {k: v.tolist() for k, v in res["auxiliaries"].items()},
         }
     elif req.mode == "stochastic":
-        stochastic_cfg = raw.get("stochastic", {})
-        sd_noise = stochastic_cfg.get("sd_noise", {})
         ensemble = []
         base_rng = np.random.default_rng(req.seed or 42)
         seeds = base_rng.integers(0, 2**31, size=req.n_ensemble)
 
         for ens_i in range(req.n_ensemble):
             rng = np.random.default_rng(int(seeds[ens_i]))
-            ws_i = WorldSystem(model=raw)
-            # If agent templates exist, initialize them
-            has_agents = bool(raw.get("agent_templates"))
-            if has_agents:
-                sched = AgentScheduler(raw)
-                sched.initialize(rng)
-
-            res = ws_i.simulate(n_points=req.n_steps)
-            # Apply log-normal noise to noised auxiliaries
-            for aux_name, cfg in sd_noise.items():
-                if aux_name in res["auxiliaries"]:
-                    noise = rng.lognormal(0, cfg["noise_scale"], size=len(res["t"]))
-                    res["auxiliaries"][aux_name] = res["auxiliaries"][aux_name] * noise
+            res = _simulate_core(raw, req.n_steps, sd_noise, rng)
             ensemble.append({
                 "t": res["t"].tolist(),
                 "stocks": {k: v.tolist() for k, v in res["stocks"].items()},
@@ -375,6 +365,83 @@ def run_simulation(req: SimRequest):
     _result_cache[result_id] = result
     result["id"] = result_id
     return result
+
+
+def _simulate_core(raw: dict, n_points: int, sd_noise: dict, rng: np.random.Generator) -> dict:
+    """Run a single trajectory with optional agent coupling and per-step noise.
+
+    Uses step-by-step solve_ivp so that agent decisions and stochastic
+    shocks are injected BETWEEN integrator steps, not post-hoc.
+    """
+    from scipy.integrate import solve_ivp
+
+    ws = WorldSystem(model=raw)
+    meta = raw.get("metadata", {})
+    t_start = float(meta.get("t_start", 2020))
+    t_end = float(meta.get("t_end", 2120))
+
+    # Set up agent scheduler if templates exist
+    sched = None
+    if raw.get("agent_templates"):
+        sched = AgentScheduler(raw)
+        sched.initialize(rng)
+
+    stock_names = list(ws.stocks.keys())
+    y = np.array([ws.stocks[n].initial for n in stock_names], dtype=float)
+    ws._stock_names = stock_names
+    ws._aux_cache = {}
+
+    t_eval = np.linspace(t_start, t_end, n_points)
+    y_traj = np.zeros((len(stock_names), n_points))
+    y_traj[:, 0] = y
+    aux_traj = {n: np.zeros(n_points) for n in ws._aux_order}
+
+    for i in range(n_points):
+        t_curr = t_eval[i]
+        state = {n: float(y[j]) for j, n in enumerate(stock_names)}
+        ns = ws._evaluate_auxiliaries(state, ws._aux_cache)
+
+        # --- Agent step: agents read SD state, produce aggregated outputs ---
+        if sched:
+            agent_outputs = sched.step(ns, rng)
+            for aux_name, val in agent_outputs.items():
+                ns[aux_name] = val
+                ws._aux_cache[aux_name] = val
+
+        # --- Inject noise into designated auxiliaries (per-step) ---
+        for aux_name, cfg in sd_noise.items():
+            if aux_name in ns:
+                shock = rng.lognormal(0, cfg["noise_scale"])
+                ns[aux_name] = ns[aux_name] * shock
+                ws._aux_cache[aux_name] = ns[aux_name]
+
+        # Record auxiliaries at this step
+        for n in ws._aux_order:
+            aux_traj[n][i] = ns.get(n, 0.0)
+            ws._aux_cache[n] = ns.get(n, 0.0)
+
+        # Integrate to next output point (or record last point)
+        if i < n_points - 1:
+            t_next = t_eval[i + 1]
+            sol = solve_ivp(
+                ws._derivative, [t_curr, t_next], y,
+                method="LSODA", rtol=1e-6, atol=1e-9,
+                t_eval=[t_next],
+            )
+            if sol.success:
+                y = sol.y[:, -1]
+                y_traj[:, i + 1] = y
+            else:
+                # Fallback: Euler step
+                dy = ws._derivative(t_curr, y)
+                y = y + dy * (t_next - t_curr)
+                y_traj[:, i + 1] = y
+
+    return {
+        "t": t_eval,
+        "stocks": {n: y_traj[j] for j, n in enumerate(stock_names)},
+        "auxiliaries": aux_traj,
+    }
 
 
 @app.get("/api/sim/results/{result_id}")
