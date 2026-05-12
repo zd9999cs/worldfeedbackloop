@@ -1,0 +1,413 @@
+# =====================================================================
+# World System Feedback Model
+# Source: Cockshott — "Main feedback loops in world system"
+# =====================================================================
+#
+# Schema:
+#   metadata        : free-form info
+#   parameters      : global named constants (overridable at runtime)
+#   stocks          : integrated state variables; ODE built from inflows/outflows
+#   auxiliaries     : derived variables; computed each step from `equation`
+#                     - operator: which diagram combiner node this represents
+#                                 (multiply | add | divide | identity)
+#                     - inputs:   dict of {var_name: polarity}
+#                                 polarities: positive | negative
+#   subsystems      : grouping for visualization and analysis
+#
+# Conventions:
+#   - Time is in years.
+#   - Population is in people. Oil in barrels. CO2 in ppm.
+#   - "Normalized" stocks start at 1.0 and evolve as an index.
+#   - Where Cockshott gives explicit equations (profit subsystem) we use them;
+#     elsewhere we use minimal plausible forms with named parameters so the
+#     user can override.
+# =====================================================================
+
+metadata:
+  name: "World System Feedback Loops"
+  source: "Cockshott — Main feedback loops in world system (slide deck)"
+  version: "0.1.0"
+  time_unit: "year"
+  t_start: 2020
+  t_end:   2120
+
+# ---------------------------------------------------------------------
+# GLOBAL PARAMETERS
+# ---------------------------------------------------------------------
+parameters:
+  # ----- profit subsystem (Cockshott eqs 1–7) -----
+  wage_share:           0.60    # w in S=(1-w)L
+  investment_share:     0.50    # lambda, fraction of profit reinvested
+  productivity_growth:  0.02    # g
+  depreciation_rate:    0.05    # delta
+  labour_growth:        0.010   # n  (target dL/L)
+  # equilibrium R* = (n+g+δ)/λ = 0.16
+
+  # ----- population -----
+  birth_base:           0.022
+  death_base:           0.008
+  industrialisation_birth_drag: 0.6  # higher industrialisation -> fewer births
+
+  # ----- proletarianisation -----
+  proletarianisation_rate: 0.03    # fraction of non-prol population pulled in per year
+
+  # ----- industrialisation -----
+  industrialisation_gain: 0.04     # how fast Ind responds to accumulation
+
+  # ----- oil / fuel -----
+  fuel_use_baseline:    3.0e10   # barrels/year baseline at industrial_activity = 1
+  fuel_price_elasticity: 0.5     # rate_of_fuel_use ~ price^(-elasticity)
+  oil_price_speed:      0.3      # responsiveness of price to stock changes
+  oil_stock_ref:        1.0e12   # reference stock for price formula
+
+  # ----- biofuel -----
+  biofuel_pressure:     0.002    # rate biofuel use grows per $ above $40 oil
+  biofuel_decay:        0.02     # natural saturation
+
+  # ----- CO2 / climate / food -----
+  co2_emission_factor:  7.0e-11  # ppm added per barrel (calibrated to ~2 ppm/yr)
+  co2_absorption_rate:  0.005     # fraction of (CO2 - 280) absorbed per year
+  co2_preindustrial:    280.0
+  climate_damage_coeff: 0.005     # food prod loss per ppm above 350
+  food_demand_per_capita: 1.0     # normalized
+  food_price_speed:     0.4
+
+  # ----- nuclear / wind / knowledge -----
+  rnd_share_of_accum:   0.10
+  graduate_decay:       0.025      # retirement / death of graduates
+  knowledge_decay:      0.0        # knowledge is permanent in Cockshott
+  renewable_responsiveness: 0.001   # rate_of_nuclear_wind ~ sqrt(knowledge)*price
+
+  # ----- geopolitics -----
+  tension_from_scarcity: 0.05
+  tension_from_war:      0.10
+  tension_damping:       0.08
+  treaty_signing_base:   0.10
+  treaty_climate_effect: 0.5      # treaty reduces fuel use by this fraction at full signing
+  bigwar_threshold:      0.6
+  bigwar_rate_max:       0.05
+
+  # ----- revolt -----
+  youth_unemp_growth_coupling: 0.5   # how fast unemployment tracks (grad_growth - accum_growth)
+  youth_unemp_damping:   0.05
+  revolt_threshold:      0.4
+  revolt_rate_max:       0.10
+
+# ---------------------------------------------------------------------
+# STOCKS  (integrated state variables)
+# ---------------------------------------------------------------------
+stocks:
+
+  population:
+    initial: 7.8e9
+    units: "people"
+    inflows:  [rate_of_birth]
+    outflows: [rate_of_death]
+    subsystem: profit
+
+  proletarian_pop:
+    initial: 3.5e9
+    units: "people"
+    inflows:  [rate_of_proletarianisation]
+    outflows: []
+    subsystem: profit
+
+  capital_stock:
+    initial: 1.0           # normalized
+    units: "capital units (normalized)"
+    inflows:  [rate_of_accumulation]
+    outflows: [rate_of_depreciation]
+    subsystem: profit
+
+  industrialisation:
+    initial: 1.0
+    units: "index"
+    inflows:  [rate_of_industrialisation_change]
+    outflows: []
+    subsystem: profit
+
+  oil_stock:
+    initial: 1.7e12
+    units: "barrels"
+    inflows: []
+    outflows: [rate_of_fossil_extraction]
+    subsystem: energy_politics
+
+  oil_price:
+    initial: 80.0
+    units: "USD/barrel"
+    inflows:  [oil_price_pressure]
+    outflows: []                # signed: pressure can be negative
+    subsystem: energy_politics
+
+  biofuel_use:
+    initial: 0.05
+    units: "fraction of fuel"
+    inflows:  [biofuel_change]
+    outflows: []                # signed
+    subsystem: energy_atmosphere
+
+  co2:
+    initial: 420.0
+    units: "ppm"
+    inflows:  [co2_emission]
+    outflows: [co2_absorption]
+    subsystem: energy_atmosphere
+
+  food_prices:
+    initial: 1.0
+    units: "index"
+    inflows:  [food_price_change]
+    outflows: []                # signed
+    subsystem: energy_atmosphere
+
+  graduate_pop:
+    initial: 2.0e8
+    units: "people"
+    inflows:  [graduate_inflow]
+    outflows: [graduate_attrition]
+    subsystem: knowledge
+
+  scientific_knowledge:
+    initial: 1.0
+    units: "index"
+    inflows:  [rate_of_knowledge_production]
+    outflows: []
+    subsystem: knowledge
+
+  youth_unemployment:
+    initial: 0.15
+    units: "fraction"
+    inflows:  [unemployment_change]
+    outflows: []                # signed
+    subsystem: revolt
+
+  world_tension:
+    initial: 0.30
+    units: "index 0–1"
+    inflows:  [tension_change]
+    outflows: []                # signed
+    subsystem: energy_politics
+
+# ---------------------------------------------------------------------
+# AUXILIARIES  (computed each step; faithful to the diagram's combiner nodes)
+# ---------------------------------------------------------------------
+auxiliaries:
+
+  # === × NODE: population × industrialisation -> industrial activity ===
+  rate_of_industrial_activity:
+    equation: "(population / 7.8e9) * industrialisation"
+    operator: multiply
+    inputs:   {population: positive, industrialisation: positive}
+    subsystem: profit
+
+  # === Cockshott profit subsystem ============================================
+  total_labour:
+    equation: "proletarian_pop * 2000.0"      # 2000 hrs/yr nominal
+    operator: multiply
+    inputs:   {proletarian_pop: positive}
+    subsystem: profit
+    units: "labour-hours/yr"
+
+  surplus_value:                              # S = (1 - w) * L     (Cockshott eq 1)
+    equation: "(1.0 - wage_share) * total_labour"
+    operator: multiply
+    inputs:   {total_labour: positive}
+    subsystem: profit
+
+  rate_of_profit:                             # R = S / K           (Cockshott eq 3/4)
+    equation: "surplus_value / (capital_stock * 1.0e13 + 1.0)"   # scale K to labour-hours
+    operator: divide
+    inputs:   {surplus_value: positive, capital_stock: negative}
+    subsystem: profit
+
+  rate_of_accumulation:                       # dK/dt source: λ·S          (eq 2)
+    equation: "investment_share * surplus_value / 1.0e13"
+    operator: multiply
+    inputs:   {surplus_value: positive}
+    subsystem: profit
+
+  rate_of_depreciation:                       # dK/dt sink:   (g+δ)·K       (eq 2)
+    equation: "(productivity_growth + depreciation_rate) * capital_stock"
+    operator: multiply
+    inputs:   {capital_stock: positive}
+    subsystem: profit
+
+  rate_of_industrialisation_change:
+    equation: "industrialisation_gain * (rate_of_accumulation - rate_of_depreciation)"
+    operator: add
+    inputs:   {rate_of_accumulation: positive, rate_of_depreciation: negative}
+    subsystem: profit
+
+  rate_of_proletarianisation:
+    equation: "proletarianisation_rate * (population - proletarian_pop) * (industrialisation / (industrialisation + 1.0))"
+    operator: multiply
+    inputs:   {population: positive, proletarian_pop: negative, industrialisation: positive}
+    subsystem: profit
+
+  # === demographics ==========================================================
+  rate_of_birth:
+    equation: "birth_base * population / (1.0 + industrialisation_birth_drag * industrialisation) / (1.0 + 0.3*(food_prices - 1.0))"
+    operator: multiply
+    inputs:   {population: positive, industrialisation: negative, food_prices: negative}
+    subsystem: profit
+
+  rate_of_death:
+    equation: "death_base * population * (1.0 + 0.5*max(0.0, food_prices - 1.5)) * (1.0 + 2.0*rate_of_big_wars)"
+    operator: multiply
+    inputs:   {population: positive, food_prices: positive, rate_of_big_wars: positive}
+    subsystem: profit
+
+  # === energy / oil ==========================================================
+  rate_total_energy_use:                      # + NODE: fossil + renewable
+    equation: "rate_of_fuel_use + rate_of_nuclear_wind_use"
+    operator: add
+    inputs:   {rate_of_fuel_use: positive, rate_of_nuclear_wind_use: positive}
+    subsystem: energy_atmosphere
+
+  rate_of_fuel_use:
+    equation: "fuel_use_baseline * rate_of_industrial_activity * (80.0 / max(oil_price, 10.0))**fuel_price_elasticity * (1.0 - treaty_climate_effect * rate_of_signing_treaties)"
+    operator: multiply
+    inputs:   {rate_of_industrial_activity: positive, oil_price: negative, rate_of_signing_treaties: negative}
+    subsystem: energy_atmosphere
+
+  rate_of_fossil_extraction:
+    equation: "rate_of_fuel_use * (1.0 - biofuel_use)"
+    operator: multiply
+    inputs:   {rate_of_fuel_use: positive, biofuel_use: negative}
+    subsystem: energy_politics
+
+  oil_price_pressure:
+    equation: "oil_price_speed * (80.0 * min(8.0, oil_stock_ref / max(oil_stock, 1.0e10)) - oil_price)"
+    operator: multiply
+    inputs:   {oil_stock: negative, oil_price: negative}
+    subsystem: energy_politics
+
+  rate_of_nuclear_wind_use:                   # substitutes for fuel
+    equation: "fuel_use_baseline * renewable_responsiveness * (scientific_knowledge ** 0.5) * (oil_price / 80.0)"
+    operator: multiply
+    inputs:   {scientific_knowledge: positive, oil_price: positive}
+    subsystem: knowledge
+
+  # === biofuel  (the "dramatic new element") =================================
+  biofuel_change:
+    equation: "(biofuel_pressure * max(0.0, oil_price - 40.0) - biofuel_decay * biofuel_use) * max(0.0, 1.0 - biofuel_use)"
+    operator: add
+    inputs:   {oil_price: positive, biofuel_use: negative}
+    subsystem: energy_atmosphere
+
+  # === CO2 / climate / food ==================================================
+  co2_emission:
+    equation: "co2_emission_factor * rate_of_fossil_extraction"
+    operator: multiply
+    inputs:   {rate_of_fossil_extraction: positive}
+    subsystem: energy_atmosphere
+
+  co2_absorption:
+    equation: "co2_absorption_rate * max(0.0, co2 - co2_preindustrial)"
+    operator: multiply
+    inputs:   {co2: positive}
+    subsystem: energy_atmosphere
+
+  climate_damage:
+    equation: "max(0.0, climate_damage_coeff * (co2 - 350.0))"
+    operator: identity
+    inputs:   {co2: positive}
+    subsystem: energy_atmosphere
+
+  rate_of_food_prod:                          # damaged by climate, eaten by biofuels
+    equation: "(1.0 - climate_damage) * (1.0 - 0.5 * biofuel_use) * (population / 7.8e9)"
+    operator: multiply
+    inputs:   {climate_damage: negative, biofuel_use: negative, population: positive}
+    subsystem: energy_atmosphere
+
+  food_price_change:
+    equation: "food_price_speed * ((food_demand_per_capita * (population / 7.8e9)) / max(rate_of_food_prod, 0.01) - food_prices)"
+    operator: divide
+    inputs:   {population: positive, rate_of_food_prod: negative, food_prices: negative}
+    subsystem: energy_atmosphere
+
+  # === knowledge / education =================================================
+  rate_of_education_expenditure:
+    equation: "rnd_share_of_accum * rate_of_accumulation"
+    operator: multiply
+    inputs:   {rate_of_accumulation: positive}
+    subsystem: knowledge
+
+  # × NODE: education × population -> graduates produced
+  graduate_inflow:
+    equation: "rate_of_education_expenditure * (population / 7.8e9) * 5.0e7"
+    operator: multiply
+    inputs:   {rate_of_education_expenditure: positive, population: positive}
+    subsystem: knowledge
+
+  graduate_attrition:
+    equation: "graduate_decay * graduate_pop"
+    operator: multiply
+    inputs:   {graduate_pop: positive}
+    subsystem: knowledge
+
+  rate_of_knowledge_production:
+    equation: "0.05 * (graduate_pop / 2.0e8)"
+    operator: multiply
+    inputs:   {graduate_pop: positive}
+    subsystem: knowledge
+
+  # === unemployment ==========================================================
+  unemployment_change:
+    equation: "youth_unemp_growth_coupling * max(0.0, (graduate_inflow / max(graduate_pop, 1.0e6)) - (rate_of_accumulation / max(capital_stock, 0.01))) * max(0.0, 1.0 - youth_unemployment) - youth_unemp_damping * youth_unemployment"
+    operator: add
+    inputs:   {graduate_inflow: positive, rate_of_accumulation: negative, youth_unemployment: negative}
+    subsystem: revolt
+
+  # === geopolitics ===========================================================
+  rate_of_signing_treaties:
+    equation: "treaty_signing_base * (1.0 - world_tension) * (80.0 / max(oil_price, 10.0))"
+    operator: multiply
+    inputs:   {world_tension: negative, oil_price: negative}
+    subsystem: energy_politics
+
+  tension_change:
+    equation: "(tension_from_scarcity * max(0.0, oil_stock_ref / max(oil_stock, 1.0e10) - 1.0) + tension_from_war * rate_of_big_wars) * max(0.0, 1.0 - world_tension) - tension_damping * world_tension"
+    operator: add
+    inputs:   {oil_stock: negative, rate_of_big_wars: positive, world_tension: negative}
+    subsystem: energy_politics
+
+  rate_of_big_wars:
+    equation: "bigwar_rate_max * max(0.0, world_tension - bigwar_threshold) ** 2"
+    operator: identity
+    inputs:   {world_tension: positive}
+    subsystem: energy_politics
+
+  # === revolt  (× NODE: food_prices × youth_unemployment -> revolutions) =====
+  revolt_pressure:
+    equation: "food_prices * youth_unemployment"
+    operator: multiply
+    inputs:   {food_prices: positive, youth_unemployment: positive}
+    subsystem: revolt
+
+  rate_of_revolutions:
+    equation: "revolt_rate_max * max(0.0, revolt_pressure - revolt_threshold)"
+    operator: identity
+    inputs:   {revolt_pressure: positive}
+    subsystem: revolt
+
+# ---------------------------------------------------------------------
+# SUBSYSTEMS
+# ---------------------------------------------------------------------
+subsystems:
+  profit:
+    label: "Profit System"
+    color: "#d62728"
+  energy_atmosphere:
+    label: "Energy / Atmosphere"
+    color: "#2ca02c"
+  energy_politics:
+    label: "Energy / Politics"
+    color: "#ff7f0e"
+  revolt:
+    label: "Revolt System"
+    color: "#9467bd"
+  knowledge:
+    label: "Knowledge / Technology"
+    color: "#1f77b4"
