@@ -90,6 +90,8 @@ function buildCyElements(model: any, showAgents: boolean) {
 export default function GraphEditor() {
   const containerRef = useRef<HTMLDivElement>(null);
   const cyRef = useRef<Core | null>(null);
+  const layout = useStore((s) => s.layout);
+  const setLayout = useStore((s) => s.setLayout);
   const model = useStore((s) => s.model);
   const showAgentBridge = useStore((s) => s.showAgentBridge);
 
@@ -150,7 +152,25 @@ export default function GraphEditor() {
     const elements = buildCyElements(model, showAgentBridge);
     cy.elements().remove();
     cy.add(elements);
-    cy.layout({ name: 'cose', animate: true, nodeRepulsion: 8000 }).run();
+
+    // Restore saved positions or auto-layout
+    if (Object.keys(layout).length > 0) {
+      cy.nodes().forEach((node) => {
+        const pos = layout[node.id()];
+        if (pos) node.position(pos);
+      });
+    } else {
+      cy.layout({ name: 'cose', animate: true, nodeRepulsion: 8000 }).run();
+    }
+
+    // Save positions on drag end
+    cy.on('dragfree', () => {
+      const positions: Record<string, { x: number; y: number }> = {};
+      cy.nodes().forEach((node) => {
+        positions[node.id()] = { ...node.position() };
+      });
+      setLayout(positions);
+    });
   }, [model, showAgentBridge]);
 
   const handleReload = useCallback(async () => {

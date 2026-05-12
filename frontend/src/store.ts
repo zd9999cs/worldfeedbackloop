@@ -27,6 +27,10 @@ interface AppState {
   selectedTimestep: number;
   setSelectedTimestep: (t: number) => void;
 
+  // Layout persistence
+  layout: Record<string, { x: number; y: number }>;
+  setLayout: (layout: Record<string, { x: number; y: number }>) => void;
+
   // Derived: is there a result to display
   hasResult: () => boolean;
 }
@@ -51,6 +55,9 @@ export const useStore = create<AppState>((set, get) => ({
   setShowAgentBridge: (show) => set({ showAgentBridge: show }),
   selectedTimestep: 0,
   setSelectedTimestep: (t) => set({ selectedTimestep: t }),
+
+  layout: {},
+  setLayout: (layout) => set({ layout }),
 
   hasResult: () => get().simResult !== null,
 }));

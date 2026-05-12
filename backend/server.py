@@ -397,3 +397,42 @@ def get_loops_for_variable(variable: str, max_len: int = 8):
     all_loops = ws.find_loops(max_len=max_len)
     matching = [L for L in all_loops if variable in L["nodes"]]
     return {"variable": variable, "loops": matching}
+
+
+# -- WebSocket streaming ------------------------------------------------
+from fastapi import WebSocket, WebSocketDisconnect
+
+@app.websocket("/api/sim/stream")
+async def sim_stream(websocket: WebSocket):
+    await websocket.accept()
+    try:
+        data = await websocket.receive_json()
+        path = data.get("model_path", _current_model_path())
+        n_steps = data.get("n_steps", 101)
+
+        ws = WorldSystem(path)
+        stock_names = list(ws.stocks.keys())
+        y0 = np.array([ws.stocks[n].initial for n in stock_names], dtype=float)
+        ws._stock_names = stock_names
+        ws._aux_cache = {}
+
+        t_start = ws.metadata.get("t_start", 2020)
+        t_end = ws.metadata.get("t_end", 2120)
+        t_eval = np.linspace(t_start, t_end, n_steps)
+
+        from scipy.integrate import solve_ivp
+        sol = solve_ivp(ws._derivative, [t_start, t_end], y0,
+                        t_eval=t_eval, method="LSODA", rtol=1e-6, atol=1e-9)
+
+        for k in range(len(sol.t)):
+            state = {n: float(sol.y[i, k]) for i, n in enumerate(stock_names)}
+            await websocket.send_json({
+                "step": k,
+                "t": float(sol.t[k]),
+                "stocks": state,
+            })
+        await websocket.send_json({"done": True})
+    except WebSocketDisconnect:
+        pass
+    except Exception as e:
+        await websocket.send_json({"error": str(e)})
