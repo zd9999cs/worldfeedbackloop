@@ -1,7 +1,6 @@
 import { useState, useCallback } from 'react';
 import { useStore } from '../store';
-import { fetchAgentPopulation, initializeAgents, fetchAgentTemplates, createAgentTemplate, deleteAgentTemplate } from '../api';
-import type { AgentTemplate, AgentInstance } from '../types';
+import { fetchAgentPopulation, initializeAgents } from '../api';
 
 export default function AgentPanel() {
   const model = useStore((s) => s.model);
@@ -10,7 +9,7 @@ export default function AgentPanel() {
   const [activeTab, setActiveTab] = useState<'templates' | 'population'>('templates');
 
   const handleInitialize = useCallback(async () => {
-    const result = await initializeAgents();
+    await initializeAgents();
     const agents = await fetchAgentPopulation();
     setAgentPopulation(agents);
   }, [setAgentPopulation]);
@@ -18,58 +17,54 @@ export default function AgentPanel() {
   const templates = model?.agent_templates || {};
 
   return (
-    <div style={{ padding: 12, borderTop: '1px solid #333' }}>
-      <h3 style={{ fontSize: 13, fontWeight: 600, marginBottom: 8 }}>Agents</h3>
+    <div>
+      <div className="section-header">
+        <h3>Agents</h3>
+        <button className="btn-icon" onClick={handleInitialize}>
+          INIT
+        </button>
+      </div>
 
-      <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
-        <button onClick={() => setActiveTab('templates')}
-          style={tabStyle(activeTab === 'templates')}>Templates</button>
-        <button onClick={() => setActiveTab('population')}
-          style={tabStyle(activeTab === 'population')}>Population</button>
-        <button onClick={handleInitialize}
-          style={{ padding: '4px 10px', background: '#1f77b4', color: '#fff', border: 'none', borderRadius: 3, cursor: 'pointer', fontSize: 11 }}>
-          Init
+      <div className="tab-row">
+        <button className={`tab-btn ${activeTab === 'templates' ? 'active' : ''}`} onClick={() => setActiveTab('templates')}>
+          Templates
+        </button>
+        <button className={`tab-btn ${activeTab === 'population' ? 'active' : ''}`} onClick={() => setActiveTab('population')}>
+          Population
         </button>
       </div>
 
       {activeTab === 'templates' && (
-        <div style={{ maxHeight: 300, overflowY: 'auto' }}>
+        <div className="section-body" style={{ maxHeight: 240, overflowY: 'auto' }}>
           {Object.entries(templates).length === 0 && (
-            <div style={{ color: '#666', fontSize: 11 }}>No agent templates defined in the model.</div>
+            <div className="empty-state" style={{ padding: 24 }}>No agent templates in model</div>
           )}
-          {Object.entries(templates).map(([name, tmpl]) => (
-            <div key={name} style={{ marginBottom: 8, padding: 8, background: '#2a2a3e', borderRadius: 4 }}>
-              <div style={{ fontWeight: 600, fontSize: 12, color: '#17becf' }}>{name}</div>
-              <div style={{ fontSize: 10, color: '#999', marginTop: 4 }}>
-                Count: {tmpl.count} | Topology: {tmpl.topology}
-              </div>
-              <div style={{ fontSize: 10, color: '#999' }}>
-                Reads: [{tmpl.reads?.join(', ')}]
-              </div>
-              <div style={{ fontSize: 10, color: '#999' }}>
+          {Object.entries(templates).map(([name, tmpl]: [string, any]) => (
+            <div key={name} className="agent-card">
+              <div className="agent-card-title">{name}</div>
+              <div className="agent-card-meta">
+                Count: {tmpl.count} · Topology: {tmpl.topology}<br />
+                Reads: [{tmpl.reads?.join(', ') || 'none'}]<br />
                 Rules: {tmpl.decision_rules?.length || 0}
+                {tmpl.internal_stocks && <> · Internal: {Object.keys(tmpl.internal_stocks).join(', ')}</>}
               </div>
-              {tmpl.internal_stocks && (
-                <div style={{ fontSize: 10, color: '#999' }}>
-                  Internal: {Object.keys(tmpl.internal_stocks).join(', ')}
-                </div>
-              )}
             </div>
           ))}
         </div>
       )}
 
       {activeTab === 'population' && (
-        <div style={{ maxHeight: 300, overflowY: 'auto' }}>
+        <div className="section-body" style={{ maxHeight: 240, overflowY: 'auto' }}>
           {agentPopulation.length === 0 && (
-            <div style={{ color: '#666', fontSize: 11 }}>Click "Init" to create agent instances.</div>
+            <div className="empty-state" style={{ padding: 24 }}>Click INIT to create agents</div>
           )}
           {agentPopulation.map((agent, i) => (
-            <div key={i} style={{ marginBottom: 4, padding: 4, background: '#2a2a3e', borderRadius: 3, fontSize: 10 }}>
-              <span style={{ color: '#17becf', fontWeight: 600 }}>{agent.template}</span>
-              {' '}
+            <div key={i} className="agent-card" style={{ marginBottom: 2, padding: '4px 8px' }}>
+              <span className="agent-card-title" style={{ marginRight: 8 }}>{agent.template}</span>
               {Object.entries(agent.state).map(([k, v]) => (
-                <span key={k} style={{ marginLeft: 6, color: '#aaa' }}>{k}: {Number(v).toFixed(3)}</span>
+                <span key={k} style={{ fontSize: 10, color: '#78788a', marginLeft: 6 }}>
+                  {k}: {Number(v).toFixed(3)}
+                </span>
               ))}
             </div>
           ))}
@@ -77,16 +72,4 @@ export default function AgentPanel() {
       )}
     </div>
   );
-}
-
-function tabStyle(active: boolean): React.CSSProperties {
-  return {
-    padding: '4px 12px',
-    background: active ? '#2a2a3e' : 'transparent',
-    color: active ? '#fff' : '#888',
-    border: active ? '1px solid #555' : '1px solid transparent',
-    borderRadius: 3,
-    cursor: 'pointer',
-    fontSize: 11,
-  };
 }

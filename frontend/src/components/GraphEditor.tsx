@@ -1,8 +1,7 @@
 import { useEffect, useRef, useCallback } from 'react';
-import cytoscape, { Core, EventObject } from 'cytoscape';
+import cytoscape, { Core } from 'cytoscape';
 import { useStore } from '../store';
 import { fetchModel } from '../api';
-import type { GraphNode, GraphEdge } from '../types';
 
 const SUBSYSTEM_COLORS: Record<string, string> = {
   profit: '#d62728',
@@ -15,7 +14,6 @@ const SUBSYSTEM_COLORS: Record<string, string> = {
 function buildCyElements(model: any, showAgents: boolean) {
   const elements: cytoscape.ElementDefinition[] = [];
 
-  // SD stocks
   for (const [name, spec] of Object.entries(model.stocks || {}) as [string, any][]) {
     const color = SUBSYSTEM_COLORS[spec.subsystem] || '#888';
     elements.push({
@@ -24,20 +22,16 @@ function buildCyElements(model: any, showAgents: boolean) {
     });
   }
 
-  // SD auxiliaries
   for (const [name, spec] of Object.entries(model.auxiliaries || {}) as [string, any][]) {
     const color = SUBSYSTEM_COLORS[spec.subsystem] || '#888';
     elements.push({
       data: { id: name, label: name.replace(/_/g, '\n'), kind: 'auxiliary', subsystem: spec.subsystem, operator: spec.operator },
       style: { 'background-color': color, shape: 'ellipse', width: 70, height: 35 },
     });
-    // Edges from inputs
     for (const [src, pol] of Object.entries(spec.inputs || {}) as [string, string][]) {
       elements.push({
         data: {
-          id: `${src}->${name}`,
-          source: src,
-          target: name,
+          id: `${src}->${name}`, source: src, target: name,
           polarity: pol === 'negative' ? 'negative' : 'positive',
           role: 'input',
         },
@@ -45,7 +39,6 @@ function buildCyElements(model: any, showAgents: boolean) {
     }
   }
 
-  // Stock flows
   for (const [name, spec] of Object.entries(model.stocks || {}) as [string, any][]) {
     for (const inflow of spec.inflows || []) {
       elements.push({
@@ -54,12 +47,11 @@ function buildCyElements(model: any, showAgents: boolean) {
     }
     for (const outflow of spec.outflows || []) {
       elements.push({
-        data: { id: `${name}->${outflow}`, source: outflow, target: name, polarity: 'negative', role: 'outflow' },
+        data: { id: `${outflow}->${name}`, source: outflow, target: name, polarity: 'negative', role: 'outflow' },
       });
     }
   }
 
-  // Agent templates (bridge view)
   if (showAgents && model.agent_templates) {
     for (const [name, tmpl] of Object.entries(model.agent_templates) as [string, any][]) {
       elements.push({
@@ -67,14 +59,12 @@ function buildCyElements(model: any, showAgents: boolean) {
         style: { 'background-color': '#17becf', shape: 'hexagon', width: 80, height: 46 },
         classes: 'agent-node',
       });
-      // Reads: SD var -> agent
       for (const readVar of tmpl.reads || []) {
         elements.push({
           data: { id: `${readVar}->agent:${name}`, source: readVar, target: `agent:${name}`, polarity: 'positive', role: 'read' },
           classes: 'agent-edge',
         });
       }
-      // Writes: agent -> SD aux
       for (const [, writeSpec] of Object.entries(tmpl.writes || {}) as [string, any][]) {
         elements.push({
           data: { id: `agent:${name}->${writeSpec.target}`, source: `agent:${name}`, target: writeSpec.target, polarity: 'positive', role: 'write' },
@@ -107,38 +97,82 @@ export default function GraphEditor() {
             label: 'data(label)',
             'text-valign': 'center',
             'text-halign': 'center',
-            'font-size': '8px',
-            color: '#fff',
+            'font-size': '7px',
+            'font-family': '"JetBrains Mono", monospace',
+            color: '#e0e0e0',
             'text-wrap': 'wrap',
+            'text-outline-width': 1,
+            'text-outline-color': '#0c0c14',
+            'border-width': 1.2,
+            'border-color': '#1a1a26',
           },
         },
         {
+          selector: 'node:selected',
+          style: { 'border-color': '#e8a830', 'border-width': 2 },
+        },
+        {
           selector: 'edge[role="input"]',
-          style: { 'line-color': '#2a7', 'target-arrow-color': '#2a7', 'target-arrow-shape': 'triangle', width: 1.5 },
+          style: {
+            'line-color': '#2a6a3c',
+            'target-arrow-color': '#2a6a3c',
+            'target-arrow-shape': 'triangle',
+            width: 1.2,
+            'curve-style': 'bezier',
+          },
         },
         {
           selector: 'edge[role="input"][polarity="negative"]',
-          style: { 'line-color': '#c33', 'target-arrow-color': '#c33', 'line-style': 'dashed' },
+          style: {
+            'line-color': '#8a2a2a',
+            'target-arrow-color': '#8a2a2a',
+            'line-style': 'dashed',
+          },
         },
         {
           selector: 'edge[role="inflow"]',
-          style: { 'line-color': '#2a7', 'target-arrow-color': '#2a7', 'target-arrow-shape': 'triangle', width: 2 },
+          style: {
+            'line-color': '#3dd68c',
+            'target-arrow-color': '#3dd68c',
+            'target-arrow-shape': 'triangle',
+            width: 2,
+          },
         },
         {
           selector: 'edge[role="outflow"]',
-          style: { 'line-color': '#c33', 'target-arrow-color': '#c33', 'target-arrow-shape': 'triangle', 'line-style': 'dashed', width: 2 },
+          style: {
+            'line-color': '#e84840',
+            'target-arrow-color': '#e84840',
+            'target-arrow-shape': 'triangle',
+            'line-style': 'dashed',
+            width: 2,
+          },
         },
         {
           selector: '.agent-node',
-          style: { 'border-width': 2, 'border-color': '#17becf' },
+          style: {
+            'border-width': 1.5,
+            'border-color': '#17becf',
+            'border-opacity': 0.7,
+            'background-opacity': 0.9,
+          },
         },
         {
           selector: '.agent-edge',
-          style: { 'line-color': '#1f77b4', 'target-arrow-color': '#1f77b4', 'target-arrow-shape': 'triangle', 'line-style': 'dotted', width: 1 },
+          style: {
+            'line-color': '#4da8da',
+            'target-arrow-color': '#4da8da',
+            'target-arrow-shape': 'triangle',
+            'line-style': 'dotted',
+            width: 1,
+            'line-opacity': 0.6,
+          },
         },
       ],
-      layout: { name: 'cose', animate: false, nodeRepulsion: 8000 },
+      layout: { name: 'cose', animate: false, nodeRepulsion: 10000, idealEdgeLength: 120 },
       wheelSensitivity: 0.3,
+      minZoom: 0.15,
+      maxZoom: 3,
     });
 
     cyRef.current = cy;
@@ -153,17 +187,15 @@ export default function GraphEditor() {
     cy.elements().remove();
     cy.add(elements);
 
-    // Restore saved positions or auto-layout
     if (Object.keys(layout).length > 0) {
       cy.nodes().forEach((node) => {
         const pos = layout[node.id()];
         if (pos) node.position(pos);
       });
     } else {
-      cy.layout({ name: 'cose', animate: true, nodeRepulsion: 8000 }).run();
+      cy.layout({ name: 'cose', animate: true, nodeRepulsion: 10000, idealEdgeLength: 120 }).run();
     }
 
-    // Save positions on drag end
     cy.on('dragfree', () => {
       const positions: Record<string, { x: number; y: number }> = {};
       cy.nodes().forEach((node) => {
@@ -178,11 +210,18 @@ export default function GraphEditor() {
     useStore.getState().setModel(m);
   }, []);
 
+  const handleFit = useCallback(() => {
+    cyRef.current?.fit(undefined, 40);
+  }, []);
+
   return (
     <div style={{ position: 'relative', width: '100%', height: '100%' }}>
-      <div style={{ position: 'absolute', top: 8, right: 8, zIndex: 10, display: 'flex', gap: 8 }}>
-        <button onClick={handleReload} style={{ padding: '4px 12px', background: '#333', color: '#ccc', border: '1px solid #555', borderRadius: 4, cursor: 'pointer' }}>
-          Reload
+      <div className="graph-toolbar">
+        <button className="btn-tool" onClick={handleReload} title="Reload model from disk">
+          RELOAD
+        </button>
+        <button className="btn-tool" onClick={handleFit} title="Fit graph to view">
+          FIT
         </button>
       </div>
       <div ref={containerRef} style={{ width: '100%', height: '100%' }} />

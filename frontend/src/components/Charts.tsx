@@ -1,7 +1,5 @@
 import { useMemo, useState } from 'react';
-import {
-  LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
-} from 'recharts';
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { useStore } from '../store';
 
 const DEFAULT_VARS = [
@@ -12,10 +10,11 @@ const DEFAULT_VARS = [
   'graduate_pop', 'rate_of_revolutions',
 ];
 
+const CHART_COLORS = ['#3dd68c', '#e8a830', '#4da8da', '#e84840', '#9467bd', '#17becf'];
+
 function percentile(arr: number[], p: number): number {
   const sorted = [...arr].sort((a, b) => a - b);
-  const idx = (p / 100) * (sorted.length - 1);
-  return sorted[Math.round(idx)];
+  return sorted[Math.round((p / 100) * (sorted.length - 1))];
 }
 
 export default function Charts() {
@@ -27,7 +26,7 @@ export default function Charts() {
     if (!simResult) return null;
 
     if (simResult.mode === 'deterministic' && simResult.t) {
-      const t = simResult.t!;
+      const t = simResult.t;
       const stocks = simResult.stocks || {};
       const auxs = simResult.auxiliaries || {};
       return t.map((time, i) => {
@@ -49,12 +48,9 @@ export default function Charts() {
         for (const v of selectedVars) {
           point[v] = stocks[v]?.[i] ?? auxs[v]?.[i] ?? 0;
         }
-
         if (selectedVars.length > 0 && simResult.ensemble) {
           const firstVar = selectedVars[0];
-          const allVals = simResult.ensemble.map(m => {
-            return m.stocks?.[firstVar]?.[i] ?? m.auxiliaries?.[firstVar]?.[i] ?? 0;
-          });
+          const allVals = simResult.ensemble.map((m) => m.stocks?.[firstVar]?.[i] ?? m.auxiliaries?.[firstVar]?.[i] ?? 0);
           point[`${firstVar}_p10`] = percentile(allVals, 10);
           point[`${firstVar}_p50`] = percentile(allVals, 50);
           point[`${firstVar}_p90`] = percentile(allVals, 90);
@@ -69,80 +65,103 @@ export default function Charts() {
   const allVarNames = useMemo(() => {
     if (!simResult) return [];
     const names = new Set<string>();
-    if (simResult.stocks) Object.keys(simResult.stocks).forEach(n => names.add(n));
-    if (simResult.auxiliaries) Object.keys(simResult.auxiliaries).forEach(n => names.add(n));
+    if (simResult.stocks) Object.keys(simResult.stocks).forEach((n) => names.add(n));
+    if (simResult.auxiliaries) Object.keys(simResult.auxiliaries).forEach((n) => names.add(n));
     if (simResult.ensemble?.[0]) {
-      Object.keys(simResult.ensemble[0].stocks || {}).forEach(n => names.add(n));
-      Object.keys(simResult.ensemble[0].auxiliaries || {}).forEach(n => names.add(n));
+      Object.keys(simResult.ensemble[0].stocks || {}).forEach((n) => names.add(n));
+      Object.keys(simResult.ensemble[0].auxiliaries || {}).forEach((n) => names.add(n));
     }
     return [...names].sort();
   }, [simResult]);
 
-  const COLORS = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', '#8c564b'];
-
   return (
-    <div style={{ padding: 12, flex: 1, minHeight: 300 }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-        <h3 style={{ fontSize: 13, fontWeight: 600 }}>Trajectories</h3>
-        <button
-          onClick={() => setShowVarPicker(!showVarPicker)}
-          style={{ padding: '2px 8px', background: '#333', color: '#ccc', border: '1px solid #555', borderRadius: 3, cursor: 'pointer', fontSize: 11 }}
-        >
-          Variables
+    <div>
+      <div className="section-header">
+        <h3>Trajectories</h3>
+        <button className="btn-icon" onClick={() => setShowVarPicker(!showVarPicker)}>
+          {showVarPicker ? 'CLOSE' : 'VARIABLES'}
         </button>
       </div>
 
       {showVarPicker && (
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 8, maxHeight: 150, overflowY: 'auto' }}>
-          {allVarNames.map(name => (
-            <label key={name} style={{ fontSize: 10, display: 'flex', alignItems: 'center', gap: 2, padding: '2px 6px', background: selectedVars.includes(name) ? '#2a2a4e' : '#1a1a2e', borderRadius: 3, cursor: 'pointer' }}>
-              <input
-                type="checkbox"
-                checked={selectedVars.includes(name)}
-                onChange={() => {
-                  setSelectedVars(prev =>
-                    prev.includes(name) ? prev.filter(v => v !== name) : [...prev, name]
-                  );
-                }}
-                style={{ margin: 0 }}
-              />
-              {name}
-            </label>
-          ))}
+        <div className="var-picker">
+          {allVarNames.map((name) => {
+            const sel = selectedVars.includes(name);
+            return (
+              <label key={name} className={`var-chip ${sel ? 'selected' : ''}`} onClick={() => {
+                setSelectedVars((prev) =>
+                  prev.includes(name) ? prev.filter((v) => v !== name) : [...prev, name]
+                );
+              }}>
+                {name}
+              </label>
+            );
+          })}
         </div>
       )}
 
-      {chartData && chartData.length > 0 ? (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-          {selectedVars.map((varName, idx) => (
-            <div key={varName} style={{ width: '100%', height: 120 }}>
-              <div style={{ fontSize: 10, color: '#aaa', marginBottom: 2 }}>{varName}</div>
-              <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={chartData}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#333" />
-                  <XAxis dataKey="t" tick={{ fontSize: 9, fill: '#888' }} />
-                  <YAxis tick={{ fontSize: 9, fill: '#888' }} width={60} />
-                  <Tooltip
-                    contentStyle={{ background: '#1a1a2e', border: '1px solid #555', fontSize: 11 }}
-                    labelFormatter={(v) => `t=${Number(v).toFixed(0)}`}
-                  />
-                  <Line type="monotone" dataKey={varName} stroke={COLORS[idx % COLORS.length]} dot={false} strokeWidth={1.5} />
-                  {simResult?.mode === 'stochastic' && idx === 0 && (
-                    <>
-                      <Line type="monotone" dataKey={`${varName}_p10`} stroke={COLORS[0]} strokeWidth={0.5} dot={false} strokeDasharray="2 2" opacity={0.4} />
-                      <Line type="monotone" dataKey={`${varName}_p90`} stroke={COLORS[0]} strokeWidth={0.5} dot={false} strokeDasharray="2 2" opacity={0.4} />
-                    </>
-                  )}
-                </LineChart>
-              </ResponsiveContainer>
-            </div>
-          ))}
-        </div>
-      ) : (
-        <div style={{ color: '#666', fontSize: 12, textAlign: 'center', paddingTop: 60 }}>
-          Run a simulation to see trajectories
-        </div>
-      )}
+      <div className="section-body">
+        {chartData && chartData.length > 0 ? (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            {selectedVars.map((varName, idx) => (
+              <div key={varName} className="mini-chart">
+                <div className="mini-chart-label">
+                  {varName.replace(/_/g, ' ')}
+                </div>
+                <ResponsiveContainer width="100%" height={110}>
+                  <LineChart data={chartData} margin={{ top: 4, right: 4, bottom: 0, left: 0 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#1a1a26" />
+                    <XAxis dataKey="t" tick={{ fontSize: 9, fill: '#4a4a58', fontFamily: '"JetBrains Mono", monospace' }} axisLine={{ stroke: '#1a1a26' }} tickLine={false} />
+                    <YAxis tick={{ fontSize: 9, fill: '#4a4a58', fontFamily: '"JetBrains Mono", monospace' }} width={56} axisLine={false} tickLine={false} />
+                    <Tooltip
+                      contentStyle={{
+                        background: '#111118',
+                        border: '1px solid #3a3420',
+                        borderRadius: 2,
+                        fontFamily: '"JetBrains Mono", monospace',
+                        fontSize: 10,
+                        color: '#d4d4dc',
+                      }}
+                      labelFormatter={(v) => `t = ${Number(v).toFixed(0)}`}
+                    />
+                    <Line
+                      type="monotone"
+                      dataKey={varName}
+                      stroke={CHART_COLORS[idx % CHART_COLORS.length]}
+                      dot={false}
+                      strokeWidth={1.5}
+                    />
+                    {simResult?.mode === 'stochastic' && idx === 0 && (
+                      <>
+                        <Line
+                          type="monotone"
+                          dataKey={`${varName}_p10`}
+                          stroke={CHART_COLORS[0]}
+                          strokeWidth={0.5}
+                          dot={false}
+                          strokeDasharray="2 3"
+                          opacity={0.35}
+                        />
+                        <Line
+                          type="monotone"
+                          dataKey={`${varName}_p90`}
+                          stroke={CHART_COLORS[0]}
+                          strokeWidth={0.5}
+                          dot={false}
+                          strokeDasharray="2 3"
+                          opacity={0.35}
+                        />
+                      </>
+                    )}
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="empty-state">Run a simulation to see trajectories</div>
+        )}
+      </div>
     </div>
   );
 }

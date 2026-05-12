@@ -33,39 +33,38 @@ export default function ControlPanel() {
     });
   }, [model]);
 
-  if (!model) return <div style={{ padding: 16 }}>Loading model...</div>;
+  if (!model) return <div className="empty-state">Loading model...</div>;
 
   const params = model.parameters || {};
 
   return (
-    <div style={{ padding: 12, borderBottom: '1px solid #333' }}>
-      <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
-        <button
-          onClick={() => setActiveTab('params')}
-          style={tabStyle(activeTab === 'params')}
-        >
+    <div>
+      <div className="section-header">
+        <h3>Controls</h3>
+      </div>
+
+      <div className="tab-row">
+        <button className={`tab-btn ${activeTab === 'params' ? 'active' : ''}`} onClick={() => setActiveTab('params')}>
           Parameters
         </button>
-        <button
-          onClick={() => setActiveTab('run')}
-          style={tabStyle(activeTab === 'run')}
-        >
+        <button className={`tab-btn ${activeTab === 'run' ? 'active' : ''}`} onClick={() => setActiveTab('run')}>
           Run
         </button>
       </div>
 
       {activeTab === 'params' && (
-        <div style={{ maxHeight: 400, overflowY: 'auto' }}>
+        <div className="section-body" style={{ maxHeight: 340, overflowY: 'auto' }}>
           {Object.entries(params).map(([name, value]) => {
             const v = Number(value);
             const min = v * 0.1;
             const max = v * 10;
             const step = (max - min) / 200;
             return (
-              <div key={name} style={{ marginBottom: 8 }}>
-                <label style={{ display: 'block', fontSize: 11, color: '#aaa', marginBottom: 2 }}>
-                  {name}: {v.toFixed(4)}
-                </label>
+              <div key={name} className="param-row">
+                <div className="param-label">
+                  <span className="param-name">{name}</span>
+                  <span className="param-value">{v.toFixed(4)}</span>
+                </div>
                 <input
                   type="range"
                   min={min}
@@ -73,7 +72,6 @@ export default function ControlPanel() {
                   step={step}
                   value={v}
                   onChange={(e) => handleParamChange(name, parseFloat(e.target.value))}
-                  style={{ width: '100%' }}
                 />
               </div>
             );
@@ -82,62 +80,35 @@ export default function ControlPanel() {
       )}
 
       {activeTab === 'run' && (
-        <div>
-          <div style={{ marginBottom: 8 }}>
-            <label style={{ display: 'block', fontSize: 11, color: '#aaa', marginBottom: 2 }}>Mode</label>
-            <select value={mode} onChange={(e) => setMode(e.target.value as any)}
-              style={{ width: '100%', padding: 4, background: '#2a2a3e', color: '#ccc', border: '1px solid #555', borderRadius: 3 }}>
+        <div className="section-body">
+          <div className="field-row">
+            <label className="field-label">Simulation Mode</label>
+            <select value={mode} onChange={(e) => setMode(e.target.value as any)}>
               <option value="deterministic">Deterministic</option>
               <option value="stochastic">Stochastic</option>
             </select>
           </div>
-          <div style={{ marginBottom: 8 }}>
-            <label style={{ display: 'block', fontSize: 11, color: '#aaa', marginBottom: 2 }}>Time steps</label>
-            <input type="number" value={nSteps} onChange={(e) => setNSteps(parseInt(e.target.value) || 201)}
-              style={{ width: '100%', padding: 4, background: '#2a2a3e', color: '#ccc', border: '1px solid #555', borderRadius: 3 }} />
+          <div className="field-row">
+            <label className="field-label">Time Steps</label>
+            <input type="number" value={nSteps} onChange={(e) => setNSteps(parseInt(e.target.value) || 201)} />
           </div>
           {mode === 'stochastic' && (
             <>
-              <div style={{ marginBottom: 8 }}>
-                <label style={{ display: 'block', fontSize: 11, color: '#aaa', marginBottom: 2 }}>Ensemble size</label>
-                <input type="number" value={nEnsemble} onChange={(e) => setNEnsemble(parseInt(e.target.value) || 10)}
-                  style={{ width: '100%', padding: 4, background: '#2a2a3e', color: '#ccc', border: '1px solid #555', borderRadius: 3 }} />
+              <div className="field-row">
+                <label className="field-label">Ensemble Size</label>
+                <input type="number" value={nEnsemble} onChange={(e) => setNEnsemble(parseInt(e.target.value) || 10)} />
               </div>
-              <div style={{ marginBottom: 8 }}>
-                <label style={{ display: 'block', fontSize: 11, color: '#aaa', marginBottom: 2 }}>Seed</label>
-                <input type="number" value={seed} onChange={(e) => setSeed(parseInt(e.target.value) || 42)}
-                  style={{ width: '100%', padding: 4, background: '#2a2a3e', color: '#ccc', border: '1px solid #555', borderRadius: 3 }} />
+              <div className="field-row">
+                <label className="field-label">Seed</label>
+                <input type="number" value={seed} onChange={(e) => setSeed(parseInt(e.target.value) || 42)} />
               </div>
             </>
           )}
-          <button
-            onClick={handleRun}
-            disabled={simRunning}
-            style={{
-              width: '100%', padding: '8px 0', marginTop: 8,
-              background: simRunning ? '#555' : '#2ca02c', color: '#fff',
-              border: 'none', borderRadius: 4, cursor: simRunning ? 'default' : 'pointer',
-              fontWeight: 600,
-            }}
-          >
-            {simRunning ? 'Running...' : 'Run Simulation'}
+          <button className="btn btn-primary" onClick={handleRun} disabled={simRunning}>
+            {simRunning ? 'SIMULATING…' : 'RUN SIMULATION'}
           </button>
         </div>
       )}
     </div>
   );
-}
-
-function tabStyle(active: boolean): React.CSSProperties {
-  return {
-    flex: 1,
-    padding: '6px 0',
-    background: active ? '#2a2a3e' : 'transparent',
-    color: active ? '#fff' : '#888',
-    border: active ? '1px solid #555' : '1px solid transparent',
-    borderRadius: 4,
-    cursor: 'pointer',
-    fontSize: 12,
-    fontWeight: active ? 600 : 400,
-  };
 }
