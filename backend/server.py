@@ -281,6 +281,41 @@ def get_agent_population_by_template(template: str):
     return {"agents": agents}
 
 
+# -- Scenario management -----------------------------------------------
+
+@app.get("/api/model/scenarios")
+def list_scenarios():
+    files = sorted(SCENARIOS_DIR.glob("*.yaml"))
+    return {"scenarios": [f.stem for f in files]}
+
+
+@app.get("/api/model/scenarios/{name}")
+def get_scenario(name: str):
+    path = SCENARIOS_DIR / f"{name}.yaml"
+    if not path.exists():
+        raise HTTPException(404, f"Scenario '{name}' not found")
+    raw = _load_raw(str(path))
+    return ModelOut(
+        metadata=raw.get("metadata", {}),
+        parameters=raw.get("parameters", {}),
+        stocks=raw.get("stocks", {}),
+        auxiliaries=raw.get("auxiliaries", {}),
+        subsystems=raw.get("subsystems", {}),
+        agent_templates=raw.get("agent_templates", {}),
+        stochastic=raw.get("stochastic", {}),
+    )
+
+
+@app.post("/api/model/scenarios/{name}/activate")
+def activate_scenario(name: str):
+    src = SCENARIOS_DIR / f"{name}.yaml"
+    if not src.exists():
+        raise HTTPException(404, f"Scenario '{name}' not found")
+    import shutil
+    shutil.copy(str(src), _current_model_path())
+    return {"status": "ok", "active": name}
+
+
 # -- Simulation --------------------------------------------------------
 
 # In-memory result cache (simple dict, no persistence across restarts)
