@@ -192,7 +192,9 @@ def delete_auxiliary(name: str):
 @app.put("/api/model/parameters/{name}")
 def update_parameter(name: str, value: float):
     raw = _load_raw(_current_model_path())
-    raw.setdefault("parameters", {})[name] = value
+    if name not in raw.get("parameters", {}):
+        raise HTTPException(404, f"Parameter '{name}' not found")
+    raw["parameters"][name] = value
     _save_raw(_current_model_path(), raw)
     return {"status": "ok", "name": name, "value": value}
 
@@ -221,7 +223,9 @@ def create_agent_template(spec: AgentTemplateSpec):
 @app.put("/api/agents/templates/{name}")
 def update_agent_template(name: str, template: dict[str, Any]):
     raw = _load_raw(_current_model_path())
-    raw.setdefault("agent_templates", {})[name] = template
+    if name not in raw.get("agent_templates", {}):
+        raise HTTPException(404, f"Agent template '{name}' not found")
+    raw["agent_templates"][name] = template
     _save_raw(_current_model_path(), raw)
     return {"status": "ok", "name": name}
 

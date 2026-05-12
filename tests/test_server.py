@@ -74,6 +74,11 @@ def test_update_parameter(client):
     assert resp.json()["parameters"]["alpha"] == 99.0
 
 
+def test_update_parameter_404(client):
+    resp = client.put("/api/model/parameters/nonexistent?value=99.0")
+    assert resp.status_code == 404
+
+
 def test_list_agent_templates(client, tmp_path):
     """Write a model with agent templates, then list them."""
     import yaml
@@ -169,3 +174,17 @@ def test_create_and_delete_template(client, tmp_path):
     assert resp.status_code == 200
     resp = client.get("/api/agents/templates")
     assert "NewAgent" not in resp.json()["templates"]
+
+
+def test_update_agent_template_404(client, tmp_path):
+    import yaml
+    model_yaml = tmp_path / "model.yaml"
+    model_yaml.write_text(yaml.safe_dump({
+        "metadata": {"name": "test"},
+        "parameters": {},
+        "stocks": {},
+        "auxiliaries": {},
+        "subsystems": {},
+    }))
+    resp = client.put("/api/agents/templates/nonexistent", json={})
+    assert resp.status_code == 404
