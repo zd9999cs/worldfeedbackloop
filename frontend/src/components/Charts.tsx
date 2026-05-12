@@ -48,12 +48,13 @@ export default function Charts() {
         for (const v of selectedVars) {
           point[v] = stocks[v]?.[i] ?? auxs[v]?.[i] ?? 0;
         }
-        if (selectedVars.length > 0 && simResult.ensemble) {
-          const firstVar = selectedVars[0];
-          const allVals = simResult.ensemble.map((m) => m.stocks?.[firstVar]?.[i] ?? m.auxiliaries?.[firstVar]?.[i] ?? 0);
-          point[`${firstVar}_p10`] = percentile(allVals, 10);
-          point[`${firstVar}_p50`] = percentile(allVals, 50);
-          point[`${firstVar}_p90`] = percentile(allVals, 90);
+        if (simResult.ensemble) {
+          for (const v of selectedVars) {
+            const allVals = simResult.ensemble.map((m) => m.stocks?.[v]?.[i] ?? m.auxiliaries?.[v]?.[i] ?? 0);
+            point[`${v}_p10`] = percentile(allVals, 10);
+            point[`${v}_p50`] = percentile(allVals, 50);
+            point[`${v}_p90`] = percentile(allVals, 90);
+          }
         }
         return point;
       });
@@ -131,12 +132,12 @@ export default function Charts() {
                       dot={false}
                       strokeWidth={1.5}
                     />
-                    {simResult?.mode === 'stochastic' && idx === 0 && (
+                    {simResult?.mode === 'stochastic' && (
                       <>
                         <Line
                           type="monotone"
                           dataKey={`${varName}_p10`}
-                          stroke={CHART_COLORS[0]}
+                          stroke={CHART_COLORS[idx % CHART_COLORS.length]}
                           strokeWidth={0.5}
                           dot={false}
                           strokeDasharray="2 3"
@@ -145,7 +146,7 @@ export default function Charts() {
                         <Line
                           type="monotone"
                           dataKey={`${varName}_p90`}
-                          stroke={CHART_COLORS[0]}
+                          stroke={CHART_COLORS[idx % CHART_COLORS.length]}
                           strokeWidth={0.5}
                           dot={false}
                           strokeDasharray="2 3"
