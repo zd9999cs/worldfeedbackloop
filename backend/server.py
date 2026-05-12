@@ -12,6 +12,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 from simulator import WorldSystem
+from agent_scheduler import AgentScheduler
+import numpy as np
 
 MODEL_DIR = Path(__file__).resolve().parent
 SCENARIOS_DIR = MODEL_DIR / "scenarios"
@@ -49,6 +51,13 @@ class ModelOut(BaseModel):
     subsystems: dict[str, Any]
     agent_templates: dict[str, Any] = {}
     stochastic: dict[str, Any] = {}
+
+
+class SimRequest(BaseModel):
+    mode: str = "deterministic"  # deterministic | stochastic
+    n_steps: int = 401
+    n_ensemble: int = 10
+    seed: int | None = None
 
 # -- Helpers ----------------------------------------------------------
 
@@ -182,3 +191,86 @@ def update_parameter(name: str, value: float):
 @app.post("/api/model/reload")
 def reload_model():
     return {"status": "ok", "message": "Model re-read from disk on next request"}
+
+
+# -- Simulation --------------------------------------------------------
+
+# In-memory result cache (simple dict, no persistence across restarts)
+_result_cache: dict[str, dict] = {}
+
+
+@app.post("/api/sim/run")
+def run_simulation(req: SimRequest):
+    path = _current_model_path()
+    raw = _load_raw(path)
+    ws = WorldSystem(model=raw)
+
+    if req.mode == "deterministic":
+        res = ws.simulate(n_points=req.n_steps)
+        result = {
+            "mode": "deterministic",
+            "t": res["t"].tolist(),
+            "stocks": {k: v.tolist() for k, v in res["stocks"].items()},
+            "auxiliaries": {k: v.tolist() for k, v in res["auxiliaries"].items()},
+        }
+    elif req.mode == "stochastic":
+        stochastic_cfg = raw.get("stochastic", {})
+        sd_noise = stochastic_cfg.get("sd_noise", {})
+        ensemble = []
+        base_rng = np.random.default_rng(req.seed or 42)
+        seeds = base_rng.integers(0, 2**31, size=req.n_ensemble)
+
+        for ens_i in range(req.n_ensemble):
+            rng = np.random.default_rng(int(seeds[ens_i]))
+            ws_i = WorldSystem(model=raw)
+            # If agent templates exist, initialize them
+            has_agents = bool(raw.get("agent_templates"))
+            if has_agents:
+                sched = AgentScheduler(raw)
+                sched.initialize(rng)
+
+            res = ws_i.simulate(n_points=req.n_steps)
+            # Apply log-normal noise to noised auxiliaries
+            for aux_name, cfg in sd_noise.items():
+                if aux_name in res["auxiliaries"]:
+                    noise = rng.lognormal(0, cfg["noise_scale"], size=len(res["t"]))
+                    res["auxiliaries"][aux_name] = res["auxiliaries"][aux_name] * noise
+            ensemble.append({
+                "t": res["t"].tolist(),
+                "stocks": {k: v.tolist() for k, v in res["stocks"].items()},
+                "auxiliaries": {k: v.tolist() for k, v in res["auxiliaries"].items()},
+            })
+        result = {"mode": "stochastic", "ensemble": ensemble}
+    else:
+        raise HTTPException(400, f"Unknown mode: {req.mode}")
+
+    result_id = str(uuid.uuid4())[:8]
+    _result_cache[result_id] = result
+    result["id"] = result_id
+    return result
+
+
+@app.get("/api/sim/results/{result_id}")
+def get_results(result_id: str):
+    if result_id not in _result_cache:
+        raise HTTPException(404, "Result not found")
+    return _result_cache[result_id]
+
+
+# -- Loop analysis ------------------------------------------------------
+
+@app.get("/api/loops")
+def get_loops(max_len: int = 8):
+    path = _current_model_path()
+    ws = WorldSystem(path)
+    loops = ws.find_loops(max_len=max_len)
+    return {"loops": loops}
+
+
+@app.get("/api/loops/{variable}")
+def get_loops_for_variable(variable: str, max_len: int = 8):
+    path = _current_model_path()
+    ws = WorldSystem(path)
+    all_loops = ws.find_loops(max_len=max_len)
+    matching = [L for L in all_loops if variable in L["nodes"]]
+    return {"variable": variable, "loops": matching}
