@@ -59,6 +59,15 @@ class SimRequest(BaseModel):
     n_ensemble: int = 10
     seed: int | None = None
 
+
+class AgentTemplateSpec(BaseModel):
+    name: str
+    template: dict[str, Any]
+
+
+class InitAgentsRequest(BaseModel):
+    seed: int | None = None
+
 # -- Helpers ----------------------------------------------------------
 
 def _load_raw(path: str) -> dict:
@@ -191,6 +200,85 @@ def update_parameter(name: str, value: float):
 @app.post("/api/model/reload")
 def reload_model():
     return {"status": "ok", "message": "Model re-read from disk on next request"}
+
+
+# -- Agent CRUD --------------------------------------------------------
+
+@app.get("/api/agents/templates")
+def list_agent_templates():
+    raw = _load_raw(_current_model_path())
+    return {"templates": raw.get("agent_templates", {})}
+
+
+@app.post("/api/agents/templates")
+def create_agent_template(spec: AgentTemplateSpec):
+    raw = _load_raw(_current_model_path())
+    raw.setdefault("agent_templates", {})[spec.name] = spec.template
+    _save_raw(_current_model_path(), raw)
+    return {"status": "ok", "name": spec.name}
+
+
+@app.put("/api/agents/templates/{name}")
+def update_agent_template(name: str, template: dict[str, Any]):
+    raw = _load_raw(_current_model_path())
+    raw.setdefault("agent_templates", {})[name] = template
+    _save_raw(_current_model_path(), raw)
+    return {"status": "ok", "name": name}
+
+
+@app.delete("/api/agents/templates/{name}")
+def delete_agent_template(name: str):
+    raw = _load_raw(_current_model_path())
+    if name not in raw.get("agent_templates", {}):
+        raise HTTPException(404, f"Agent template '{name}' not found")
+    del raw["agent_templates"][name]
+    _save_raw(_current_model_path(), raw)
+    return {"status": "ok"}
+
+
+# Agent population (in-memory, lives for duration of a simulation)
+_agent_scheduler: AgentScheduler | None = None
+
+
+@app.post("/api/agents/initialize")
+def initialize_agents(req: InitAgentsRequest):
+    global _agent_scheduler
+    raw = _load_raw(_current_model_path())
+    _agent_scheduler = AgentScheduler(raw)
+    rng = np.random.default_rng(req.seed or 42)
+    _agent_scheduler.initialize(rng)
+    return {"status": "ok", "count": len(_agent_scheduler.agents)}
+
+
+@app.get("/api/agents/population")
+def get_agent_population():
+    if _agent_scheduler is None:
+        return {"agents": []}
+    agents = [
+        {
+            "template": a.template_name,
+            "state": a.state,
+            "outputs": a.outputs,
+        }
+        for a in _agent_scheduler.agents
+    ]
+    return {"agents": agents}
+
+
+@app.get("/api/agents/population/{template}")
+def get_agent_population_by_template(template: str):
+    if _agent_scheduler is None:
+        return {"agents": []}
+    agents = [
+        {
+            "template": a.template_name,
+            "state": a.state,
+            "outputs": a.outputs,
+        }
+        for a in _agent_scheduler.agents
+        if a.template_name == template
+    ]
+    return {"agents": agents}
 
 
 # -- Simulation --------------------------------------------------------
