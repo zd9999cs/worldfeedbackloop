@@ -9,4 +9,7 @@ dependencies:
   - scipy
   - matplotlib
   - networkx
+  - fastapi
+  - uvicorn
+  - httpx
   - pip
