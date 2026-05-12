@@ -6,7 +6,7 @@ import yaml
 import sys
 
 # Ensure backend is importable
-sys.path.insert(0, str(Path(__file__).resolve().parent / "backend"))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "backend"))
 
 import server
 
